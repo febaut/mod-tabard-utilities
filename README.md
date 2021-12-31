@@ -1,6 +1,6 @@
-##Mod-Tabard Utilities
+# Mod-Tabard Utilities
 
-##Description:
+## Description:
 
 Allows players to obtain reputation, gold, or certain items by simply equipping tabards while slaying creatures (in/out) of instances (Zones).
 
