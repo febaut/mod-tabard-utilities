@@ -1,4 +1,3 @@
-
 /*
 
 Modified and adapted to AzerothCore by Voicot [2021]
@@ -13,6 +12,86 @@ Description: Allow players to obtain reputation, gold, or certain items by simpl
 #include "Player.h"
 #include "ReputationMgr.h"
 #include "ScriptMgr.h"
+#include "WorldSession.h"
+
+
+
+void LoadTabardInfo();
+
+struct TabardInfo
+{
+    uint8 Function;
+    uint8  Requirements;
+    uint32 ZoneID;
+    uint32 enemyFactionID;
+    uint32 CreatureEntry;
+    uint32 factionID;
+    uint32 Value;
+    uint32 Count;
+};
+
+typedef std::map<uint32, TabardInfo> TabardMap;
+TabardMap m_TabardMap;
+
+void LoadTabardInfo()
+{
+    uint32 oldMSTime = getMSTime();
+
+    m_TabardMap.clear();
+
+    QueryResult result = CharacterDatabase.Query("SELECT * FROM tabard_utilities");
+
+    if (!result)
+    {
+        LOG_INFO("server.loading", ">> Loaded 0 rows from `tabard_utilities` table is empty!");
+        LOG_INFO("server.loading", " ");
+        return;
+    }
+
+    uint32 count = 0;
+    do
+    {
+        Field* fields = result->Fetch();
+
+        uint32 TEntry = fields[0].GetUInt32();
+
+        if (!sObjectMgr->GetItemTemplate(TEntry))
+        {
+            LOG_ERROR("sql.sql", "Tabard Utilities (Tabard: %u) does not exist but has a record in `tabard_utilities`", TEntry);
+            continue;
+        }
+        TabardInfo data;
+        data.Function       = fields[1].GetUInt32();
+        data.Requirements   = fields[2].GetUInt32();
+        data.ZoneID         = fields[3].GetUInt32();
+        data.enemyFactionID = fields[4].GetUInt32();
+        data.CreatureEntry  = fields[5].GetUInt32();
+        data.factionID      = fields[6].GetUInt32();
+        data.Value          = fields[7].GetUInt32();
+        data.Count          = fields[8].GetUInt32();
+
+        m_TabardMap.insert({TEntry, data});
+        count++;
+    } while (result->NextRow());
+
+    LOG_INFO("server.loading", ">> Loaded %u Tabard Utilities rows in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
+    LOG_INFO("server.loading", " ");
+}
+
+class TU_WorldScript : public WorldScript
+{
+public:
+    TU_WorldScript() : WorldScript("TU_WorldScript") {}
+
+    void OnStartup() override
+    {
+        LOG_INFO("server.loading", "Initialize Tabard Utilities...");
+        LoadTabardInfo();
+
+    }
+};
+
+
 
 class Tabard_Utilities : public PlayerScript
 {
@@ -26,26 +105,23 @@ public:
         {
             uint32 TabardEntry = item->GetEntry();
             
-            // Find what tabard it is, and then see if it's valid for reputation gain
-            QueryResult ItemResult = CharacterDatabase.PQuery("SELECT * FROM tabard_utilities WHERE TEntry=%u", TabardEntry);
-
-            if (ItemResult)
+            // Find what tabard it is, and then see if it's valid 
+            std::map<uint32, TabardInfo>::iterator it;
+            it = m_TabardMap.find(TabardEntry);
+            if (it != m_TabardMap.end())
             {
-                Field* ItemField      = ItemResult->Fetch();
-                uint8  Function       = ItemField[1].GetUInt8();
-                uint8  Requirements   = ItemField[2].GetUInt8();
-                uint32 ZoneID         = ItemField[3].GetUInt32();
-                uint32 enemyFactionID = ItemField[4].GetUInt32();
-                uint32 CreatureEntry  = ItemField[5].GetUInt32();
-                uint32 factionID      = ItemField[6].GetUInt32();
-                uint32 Value          = ItemField[7].GetUInt32();
-                uint32 Count          = ItemField[8].GetUInt32();
-
-
+                uint32 Function       = it->second.Function;
+                uint32 Requirements   = it->second.Requirements;
+                uint32 enemyFactionID = it->second.enemyFactionID;
+                uint32 ZoneID         = it->second.ZoneID;
+                uint32 CreatureEntry  = it->second.CreatureEntry;
+                uint32 factionID      = it->second.factionID;
+                uint32 Value          = it->second.Value;
+                uint32 Count          = it->second.Count;
                 // Find out if the player is in the correct zone / area / instance to recieve the reputation from the tabard
 
                 // Functions 0 = Reputation, 1 = Gold, 2 = Item[s]
-
+                
                 if (Function < 0 && Function > 2)
                     return;
 
@@ -55,7 +131,7 @@ public:
                   3 = Specific CreatureEntry
                   4 = ZoneID and EnemyFactionID requirements
                 */ 
-
+                
                 if (Requirements < 0 && Requirements > 4)
                     return;
 
@@ -125,4 +201,5 @@ public:
 void AddTabard_UtilitiesScripts()
 {
     new Tabard_Utilities();
+    new TU_WorldScript();
 }
